@@ -71,7 +71,7 @@ def extract_stations_data(data, zipcode):
 
 async def main():
     # List of zip codes for Jersey City
-    zipcodes = ["07302", "07304", "07305", "07306", "07307", "07310", "07311"]  # Add all relevant zip codes
+    zipcodes = ["07302", "07304", "07305", "07306", "07307", "07310"]  # Add all relevant zip codes
 
     if st.button("Fetch Gas Stations Data"):
         all_stations = {}
