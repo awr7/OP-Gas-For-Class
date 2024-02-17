@@ -70,23 +70,27 @@ def extract_stations_data(data, zipcode):
     return stations_list
 
 async def main():
-    zipcodes = ["07305", "07304"]
-    all_stations = {}
+    # List of zip codes for Jersey City
+    zipcodes = ["07302", "07304", "07305", "07306", "07307", "07310", "07311"]  # Add all relevant zip codes
 
-    for zipcode in zipcodes:
-        data = await fetch_stations(zipcode)
-        if data:
-            stations_list = extract_stations_data(data, zipcode)
-            if stations_list:
-                all_stations[zipcode] = stations_list
-                cheapest_station = min(stations_list, key=lambda x: x['price'])
-                st.write(f"The cheapest gas station in {zipcode} is {cheapest_station['name']} located at {cheapest_station['address']} with a price of ${cheapest_station['price']}.")
+    if st.button("Fetch Gas Stations Data"):
+        all_stations = {}
 
-    for zipcode, stations in all_stations.items():
-        st.write(f"All stations in zipcode {zipcode}:")
-        df = pd.DataFrame(stations)
-        df = df.rename(columns={"name": "Name", "address": "Address", "price": "Price"})
-        st.table(df[['Name', 'Address', 'Price']])
+        for zipcode in zipcodes:
+            data = await fetch_stations(zipcode)
+            if data:
+                stations_list = extract_stations_data(data, zipcode)
+                if stations_list:
+                    all_stations[zipcode] = stations_list
+                    cheapest_station = min(stations_list, key=lambda x: x['price'])
+                    st.write(f"The cheapest gas station in {zipcode} is {cheapest_station['name']} located at {cheapest_station['address']} with a price of ${cheapest_station['price']}.")
+
+        for zipcode, stations in all_stations.items():
+            st.write(f"All stations in zipcode {zipcode}:")
+            df = pd.DataFrame(stations)
+            df = df.rename(columns={"name": "Name", "address": "Address", "price": "Price", "postedTime": "Posted Time"})
+            st.table(df[['Name', 'Address', 'Price', 'Posted Time']])
+
 
 if __name__ == "__main__":
     asyncio.run(main())
