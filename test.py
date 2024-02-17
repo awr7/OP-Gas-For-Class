@@ -2,11 +2,8 @@ import asyncio
 import aiohttp
 import logging
 import json
+import pandas as pd
 import streamlit as st
-import time
-import os
-
-title = st.title("Gas For Class")
 
 logging.basicConfig(level=logging.DEBUG)
 _LOGGER = logging.getLogger(__name__)
@@ -17,7 +14,6 @@ DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Your details)"
 }
 
-# Updated query based on available fields. You might need to adjust this based on the actual API schema.
 LOCATION_QUERY = """
 query LocationBySearchTerm($search: String) {
     locationBySearchTerm(search: $search) {
@@ -49,23 +45,48 @@ async def fetch_stations(zipcode: str):
     }
 
     async with aiohttp.ClientSession(headers=DEFAULT_HEADERS) as session:
-        
         response = await session.post(BASE_URL, json=query)
         if response.status == 200:
             data = await response.json()
             _LOGGER.debug(json.dumps(data, indent=2))
             return data
-            
         else:
             _LOGGER.error("Failed to fetch data: %s", await response.text())
-            
             return None
-        
+
+def extract_stations_data(data, zipcode):
+    stations_list = []
+    for station in data['data']['locationBySearchTerm']['stations']['results']:
+        for price in station['prices']:
+            if price['fuelProduct'] == 'regular_gas' and price['credit']['price'] > 0:
+                stations_list.append({
+                    'station_id': station['id'],
+                    'name': station['name'],
+                    'address': station['address']['line1'],
+                    'price': price['credit']['price'],
+                    'postedTime': price['credit']['postedTime'],
+                    'zipcode': zipcode
+                })
+    return stations_list
 
 async def main():
-    # Example ZIP code
-    zipcode = "Jersey city"
-    await fetch_stations(zipcode)
+    zipcodes = ["07305", "07304"]
+    all_stations = {}
+
+    for zipcode in zipcodes:
+        data = await fetch_stations(zipcode)
+        if data:
+            stations_list = extract_stations_data(data, zipcode)
+            if stations_list:
+                all_stations[zipcode] = stations_list
+                cheapest_station = min(stations_list, key=lambda x: x['price'])
+                st.write(f"The cheapest gas station in {zipcode} is {cheapest_station['name']} located at {cheapest_station['address']} with a price of ${cheapest_station['price']}.")
+
+    for zipcode, stations in all_stations.items():
+        st.write(f"All stations in zipcode {zipcode}:")
+        df = pd.DataFrame(stations)
+        df = df.rename(columns={"name": "Name", "address": "Address", "price": "Price"})
+        st.table(df[['Name', 'Address', 'Price']])
 
 if __name__ == "__main__":
     asyncio.run(main())
