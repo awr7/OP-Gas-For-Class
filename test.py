@@ -2,6 +2,11 @@ import asyncio
 import aiohttp
 import logging
 import json
+import streamlit as st
+import time
+import os
+
+title = st.title("Gas For Class")
 
 logging.basicConfig(level=logging.DEBUG)
 _LOGGER = logging.getLogger(__name__)
@@ -44,18 +49,22 @@ async def fetch_stations(zipcode: str):
     }
 
     async with aiohttp.ClientSession(headers=DEFAULT_HEADERS) as session:
+        
         response = await session.post(BASE_URL, json=query)
         if response.status == 200:
             data = await response.json()
             _LOGGER.debug(json.dumps(data, indent=2))
             return data
+            
         else:
             _LOGGER.error("Failed to fetch data: %s", await response.text())
+            
             return None
+        
 
 async def main():
     # Example ZIP code
-    zipcode = "07305"
+    zipcode = "Jersey city"
     await fetch_stations(zipcode)
 
 if __name__ == "__main__":
