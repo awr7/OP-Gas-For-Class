@@ -114,6 +114,8 @@ async def main():
                 stations_list = extract_stations_data(data, zipcode)
                 if stations_list:
                     all_stations[zipcode] = stations_list
+                    cheapest_station = min(stations_list, key=lambda x: x['price'])
+                    st.write(f"The cheapest gas station in {zipcode} is {cheapest_station['name']} located at {cheapest_station['address']} with a price of ${cheapest_station['price']}.")
 
     if st.session_state.button_clicked:
         text_data = [{
