@@ -126,15 +126,27 @@ async def main():
                     st.write(f"The cheapest gas station in {zipcode} is {cheapest_station['name']} located at {cheapest_station['address']} with a price of ${cheapest_station['price']}.")
     
     if cheapest_stations:
-        scatterplot_layer = pdk.Layer(
-            "ScatterplotLayer",
+        pin_img = "https://cdn-icons-png.flaticon.com/512/3448/3448636.png"
+        icon_layer = pdk.Layer(
+            "IconLayer",
             data = cheapest_stations,
+            get_icon="icon_data",
+            get_size=4,
+            size_scale=15,
             get_position=["longitude", "latitude"],
-            get_color=[255, 0, 0, 160],
-            get_radius =200,
             pickable=True,
         )
-        layers.append(scatterplot_layer)
+
+        icon_data = {
+            "url": pin_img,
+            "width": 50,
+            "height": 50,
+        }
+        
+        for station in cheapest_stations:
+            station["icon_data"] = icon_data
+
+        layers.append(icon_layer)
 
     if st.session_state.button_clicked:
         text_data = [{
@@ -162,7 +174,7 @@ async def main():
             extruded=False,
             get_fill_color=[180, 0, 200, 140],
             get_line_color=[255, 255, 255],
-            get_line_width=50
+            get_line_width=25
         )
         layers.extend([geojson_layer, text_layer])
 
