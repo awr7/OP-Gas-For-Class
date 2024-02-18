@@ -111,6 +111,7 @@ async def main():
         extruded=False,
         get_fill_color=[180, 0, 200, 140],
         get_line_color=[255, 255, 255],
+        get_line_width=100
     )
 
     view_state = pdk.ViewState(latitude=40.7178, longitude=-74.0431, zoom=11, pitch=0)
