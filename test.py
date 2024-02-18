@@ -25,6 +25,8 @@ query LocationBySearchTerm($search: String) {
                 address {
                     line1
                 }
+                latitude
+                longitude
                 prices {
                     fuelProduct
                     credit {
@@ -79,7 +81,6 @@ async def fetch_stations(zipcode: str):
 def extract_stations_data(data, zipcode):
     stations_list = []
     for station in data['data']['locationBySearchTerm']['stations']['results']:
-        lat, lon = zipcode_coords[zipcode]
         for price in station['prices']:
             if price['fuelProduct'] == 'regular_gas' and price['credit']['price'] > 0:
                 stations_list.append({
@@ -89,8 +90,8 @@ def extract_stations_data(data, zipcode):
                     'price': price['credit']['price'],
                     'postedTime': price['credit']['postedTime'],
                     'zipcode': zipcode,
-                    'lat': lat,
-                    'lon': lon,
+                    'latitude': station['latitude'],
+                    'longitude': station['longitude'],
                 })
     return stations_list
 
@@ -99,6 +100,7 @@ async def main():
         st.session_state.button_clicked = False
 
     all_stations = {}  # Initialize all_stations dictionary
+    cheapest_stations = []
 
     with open('new-jersey-zip-codes-_1601.geojson', 'r') as file:
         geojson_data = json.load(file)
@@ -115,7 +117,24 @@ async def main():
                 if stations_list:
                     all_stations[zipcode] = stations_list
                     cheapest_station = min(stations_list, key=lambda x: x['price'])
+                    cheapest_stations.append({
+                        "latitude": cheapest_station['latitude'],
+                        "longitude": cheapest_station['longitude'],
+                        "price": cheapest_station['price'],
+                        "name": cheapest_station['name']
+                    })
                     st.write(f"The cheapest gas station in {zipcode} is {cheapest_station['name']} located at {cheapest_station['address']} with a price of ${cheapest_station['price']}.")
+    
+    if cheapest_stations:
+        scatterplot_layer = pdk.Layer(
+            "ScatterplotLayer",
+            data = cheapest_stations,
+            get_position=["longitude", "latitude"],
+            get_color=[255, 0, 0, 160],
+            get_radius =200,
+            pickable=True,
+        )
+        layers.append(scatterplot_layer)
 
     if st.session_state.button_clicked:
         text_data = [{
@@ -143,7 +162,7 @@ async def main():
             extruded=False,
             get_fill_color=[180, 0, 200, 140],
             get_line_color=[255, 255, 255],
-            get_line_width=100
+            get_line_width=50
         )
         layers.extend([geojson_layer, text_layer])
 
