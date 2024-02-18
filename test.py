@@ -95,53 +95,65 @@ def extract_stations_data(data, zipcode):
     return stations_list
 
 async def main():
-    # List of zip codes for Jersey City
-    zipcodes = list(target_zip_codes)  # Add all relevant zip codes
+    if 'button_clicked' not in st.session_state:
+        st.session_state.button_clicked = False
+
+    all_stations = {}  # Initialize all_stations dictionary
 
     with open('new-jersey-zip-codes-_1601.geojson', 'r') as file:
         geojson_data = json.load(file)
     filtered_geojson = filter_geojson(geojson_data, target_zip_codes)
 
-    geojson_layer = pdk.Layer(
-        'GeoJsonLayer',
-        filtered_geojson,
-        opacity=0.8,
-        stroked=True,
-        filled=True,
-        extruded=False,
-        get_fill_color=[180, 0, 200, 140],
-        get_line_color=[255, 255, 255],
-        get_line_width=100
-    )
-
-    view_state = pdk.ViewState(latitude=40.7178, longitude=-74.0431, zoom=11, pitch=0)
-    st.pydeck_chart(pdk.Deck(layers=[geojson_layer], initial_view_state=view_state))
+    layers = []
 
     if st.button("Fetch Gas Stations Data"):
-        all_stations = {}
-        map_data = pd.DataFrame()
-
-        for zipcode in zipcodes:
+        st.session_state.button_clicked = True
+        for zipcode in target_zip_codes:
             data = await fetch_stations(zipcode)
             if data:
                 stations_list = extract_stations_data(data, zipcode)
                 if stations_list:
                     all_stations[zipcode] = stations_list
-                    cheapest_station = min(stations_list, key=lambda x: x['price'])
-                    st.write(f"The cheapest gas station in {zipcode} is {cheapest_station['name']} located at {cheapest_station['address']} with a price of ${cheapest_station['price']}.")
-        
-        latitudes, longitudes = zip(*zipcode_coords.values())
-        avg_lat = sum(latitudes) / len(latitudes)
-        avg_lon = sum(longitudes) / len(longitudes)
-        map_center = pd.DataFrame({'lat': [avg_lat], 'lon': [avg_lon]})
-        st.map(map_center)
 
+    if st.session_state.button_clicked:
+        text_data = [{
+            "position": [lon, lat],
+            "text": zipcode,
+            "color": [255, 255, 255, 128]
+        } for zipcode, (lat, lon) in zipcode_coords.items()]
+
+        text_layer = pdk.Layer(
+            "TextLayer",
+            data=text_data,
+            get_position="position",
+            get_text="text",
+            get_color="color",
+            get_size=20,
+            get_alignment_baseline="'bottom'",
+        )
+
+        geojson_layer = pdk.Layer(
+            'GeoJsonLayer',
+            filtered_geojson,
+            opacity=0.8,
+            stroked=True,
+            filled=True,
+            extruded=False,
+            get_fill_color=[180, 0, 200, 140],
+            get_line_color=[255, 255, 255],
+            get_line_width=100
+        )
+        layers.extend([geojson_layer, text_layer])
+
+    view_state = pdk.ViewState(latitude=40.7178, longitude=-74.0431, zoom=11, pitch=0)
+    st.pydeck_chart(pdk.Deck(layers=layers, initial_view_state=view_state))
+
+    if all_stations:
         for zipcode, stations in all_stations.items():
             st.write(f"All stations in zipcode {zipcode}:")
             df = pd.DataFrame(stations)
             df = df.rename(columns={"name": "Name", "address": "Address", "price": "Price", "postedTime": "Posted Time"})
             st.table(df[['Name', 'Address', 'Price', 'Posted Time']])
-
 
 if __name__ == "__main__":
     asyncio.run(main())
