@@ -129,7 +129,7 @@ def modify_geojson_with_colors(filtered_geojson, zipcode_colors):
 
 async def main():
     """Main function to run the Streamlit app."""
-    st.title("Gas Station Prices by Zip Code")
+    st.title("Gas Station Prices in Jersey City, NJ by Zip Code")
     
     all_stations = {}
     cheapest_stations = []
