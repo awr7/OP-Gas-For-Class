@@ -95,98 +95,137 @@ def extract_stations_data(data, zipcode):
                 })
     return stations_list
 
-async def main():
-    if 'button_clicked' not in st.session_state:
-        st.session_state.button_clicked = False
+def assign_colors_to_zip_codes(zipcode_prices):
+    # Sort zip codes by cheapest gas price
+    sorted_zipcodes = sorted(zipcode_prices.items(), key=lambda x: x[1], reverse=False)
+    
+    # Initialize color gradient - from spicy hot red to lighter shades
+    start_color = [255, 0, 0, 255]  # Intense red for the cheapest
+    end_color = [255, 200, 200, 255]  # Lighter red for the most expensive
+    
+    num_zipcodes = len(sorted_zipcodes)
+    zipcode_colors = {}
+    
+    for i, (zipcode, _) in enumerate(sorted_zipcodes):
+        # Calculate gradient ratio
+        if num_zipcodes > 1:
+            ratio = i / (num_zipcodes - 1)
+        else:
+            ratio = 0  # Only one zipcode, use start_color
+        
+        # Interpolate color
+        interpolated_color = [int(start_color[j] * (1 - ratio) + end_color[j] * ratio) for j in range(4)]
+        
+        zipcode_colors[zipcode] = interpolated_color
+    
+    return zipcode_colors
 
-    all_stations = {}  # Initialize all_stations dictionary
+def modify_geojson_with_colors(filtered_geojson, zipcode_colors):
+    for feature in filtered_geojson['features']:
+        zipcode = feature['properties']['ZCTA5CE10']
+        if zipcode in zipcode_colors:
+            feature['properties']['fillColor'] = zipcode_colors[zipcode]
+        else:
+            feature['properties']['fillColor'] = [255, 255, 255, 0]
+    return filtered_geojson
+
+async def main():
+    st.title("Gas Station Prices by Zip Code")
+    
+    all_stations = {}
     cheapest_stations = []
+    zipcode_prices = {}
 
     with open('new-jersey-zip-codes-_1601.geojson', 'r') as file:
         geojson_data = json.load(file)
     filtered_geojson = filter_geojson(geojson_data, target_zip_codes)
 
-    layers = []
-
-    if st.button("Fetch Gas Stations Data"):
-        st.session_state.button_clicked = True
+    # Unique key for the button to avoid DuplicateWidgetID error
+    if st.button("Fetch Gas Stations Data", key="fetch_gas_stations"):
         for zipcode in target_zip_codes:
             data = await fetch_stations(zipcode)
             if data:
                 stations_list = extract_stations_data(data, zipcode)
                 if stations_list:
                     all_stations[zipcode] = stations_list
+                    cheapest_price = min([station['price'] for station in stations_list])
+                    zipcode_prices[zipcode] = cheapest_price
                     cheapest_station = min(stations_list, key=lambda x: x['price'])
                     cheapest_stations.append({
+                        "station_id": cheapest_station['station_id'],
+                        "name": cheapest_station['name'],
+                        "address": cheapest_station['address'],
+                        "price": cheapest_station['price'],
+                        "postedTime": cheapest_station['postedTime'],
+                        "zipcode": zipcode,
                         "latitude": cheapest_station['latitude'],
                         "longitude": cheapest_station['longitude'],
-                        "price": cheapest_station['price'],
-                        "name": cheapest_station['name']
+                        "icon_data": {"url": "https://cdn-icons-png.flaticon.com/512/3448/3448636.png", "width": 128, "height": 128, "anchorY": 128}
                     })
-                    st.write(f"The cheapest gas station in {zipcode} is {cheapest_station['name']} located at {cheapest_station['address']} with a price of ${cheapest_station['price']}.")
-    
-    if cheapest_stations:
-        pin_img = "https://cdn-icons-png.flaticon.com/512/3448/3448636.png"
-        icon_layer = pdk.Layer(
-            "IconLayer",
-            data = cheapest_stations,
-            get_icon="icon_data",
-            get_size=4,
-            size_scale=15,
-            get_position=["longitude", "latitude"],
-            pickable=True,
-        )
 
-        icon_data = {
-            "url": pin_img,
-            "width": 50,
-            "height": 50,
-        }
-        
+        # Sort cheapest stations by price from lowest to highest
+        cheapest_stations = sorted(cheapest_stations, key=lambda x: x['price'])
+
+        # Display sorted cheapest stations
         for station in cheapest_stations:
-            station["icon_data"] = icon_data
+            st.write(f"Cheapest in {station['zipcode']}: {station['name']} at ${station['price']}")
 
-        layers.append(icon_layer)
+        if zipcode_prices:
+            zipcode_colors = assign_colors_to_zip_codes(zipcode_prices)
+            modified_geojson = modify_geojson_with_colors(filtered_geojson, zipcode_colors)
 
-    if st.session_state.button_clicked:
-        text_data = [{
-            "position": [lon, lat],
-            "text": zipcode,
-            "color": [255, 255, 255, 128]
-        } for zipcode, (lat, lon) in zipcode_coords.items()]
+            layers = []
 
-        text_layer = pdk.Layer(
-            "TextLayer",
-            data=text_data,
-            get_position="position",
-            get_text="text",
-            get_color="color",
-            get_size=20,
-            get_alignment_baseline="'bottom'",
-        )
+            geojson_layer = pdk.Layer(
+                'GeoJsonLayer',
+                modified_geojson,
+                opacity=0.8,
+                stroked=True,
+                filled=True,
+                extruded=False,
+                get_fill_color='properties.fillColor',
+                get_line_color=[255, 255, 255],
+                get_line_width=25,
+            )
+            layers.append(geojson_layer)
 
-        geojson_layer = pdk.Layer(
-            'GeoJsonLayer',
-            filtered_geojson,
-            opacity=0.8,
-            stroked=True,
-            filled=True,
-            extruded=False,
-            get_fill_color=[180, 0, 200, 140],
-            get_line_color=[255, 255, 255],
-            get_line_width=25
-        )
-        layers.extend([geojson_layer, text_layer])
+            icon_layer = pdk.Layer(
+                "IconLayer",
+                data=cheapest_stations,
+                get_icon="icon_data",
+                get_size=4,
+                size_scale=15,
+                get_position=["longitude", "latitude"],
+                pickable=True,
+            )
+            layers.append(icon_layer)
 
-    view_state = pdk.ViewState(latitude=40.7178, longitude=-74.0431, zoom=11, pitch=0)
-    st.pydeck_chart(pdk.Deck(layers=layers, initial_view_state=view_state))
+            text_data = [{
+                "position": [zipcode_coords[zipcode][1], zipcode_coords[zipcode][0]],
+                "text": zipcode,
+                "color": [255, 255, 255, 255],
+            } for zipcode in target_zip_codes]
 
-    if all_stations:
-        for zipcode, stations in all_stations.items():
-            st.write(f"All stations in zipcode {zipcode}:")
-            df = pd.DataFrame(stations)
-            df = df.rename(columns={"name": "Name", "address": "Address", "price": "Price", "postedTime": "Posted Time"})
-            st.table(df[['Name', 'Address', 'Price', 'Posted Time']])
+            text_layer = pdk.Layer(
+                "TextLayer",
+                data=text_data,
+                get_position="position",
+                get_text="text",
+                get_color="color",
+                get_size=16,
+                get_alignment_baseline="'bottom'",
+            )
+            layers.append(text_layer)
+
+            view_state = pdk.ViewState(latitude=40.7178, longitude=-74.0431, zoom=11, pitch=0)
+            st.pydeck_chart(pdk.Deck(layers=layers, initial_view_state=view_state))
+
+    # Display all stations in a table format for each zipcode
+    for zipcode, stations in all_stations.items():
+        st.write(f"All stations in zipcode {zipcode}:")
+        df = pd.DataFrame(stations)
+        df = df.rename(columns={"name": "Name", "address": "Address", "price": "Price", "postedTime": "Posted Time"})
+        st.table(df[['Name', 'Address', 'Price', 'Posted Time']])
 
 if __name__ == "__main__":
     asyncio.run(main())
