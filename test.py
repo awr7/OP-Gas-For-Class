@@ -5,6 +5,7 @@ import json
 import pandas as pd
 import streamlit as st
 import pydeck as pdk
+from geopy.distance import geodesic
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -43,18 +44,57 @@ query LocationBySearchTerm($search: String) {
 }
 """
 
-# Dictionary mapping zipcodes to their geographic coordinates (latitude, longitude)
-zipcode_coords = {
-    "07302": (40.719389, -74.046469),
-    "07304": (40.716495, -74.072593),
-    "07305": (40.697302, -74.082273),
-    "07306": (40.734924, -74.071875),
-    "07307": (40.750877, -74.056865),
-    "07310": (40.730133, -74.036816),
-}
+def load_and_merge_geojson(nj_file, pa_file):
+    """Loads and merges New Jersey and Pennsylvania GeoJSON files."""
+    with open(nj_file, 'r') as nj_file, open(pa_file, 'r') as pa_file:
+        nj_geojson = json.load(nj_file)
+        pa_geojson = json.load(pa_file)
+    
+    merged_features = nj_geojson['features'] + pa_geojson['features']
+    return {
+        "type": "FeatureCollection",
+        "features": merged_features
+    }
 
-# Set of target zipcodes to fetch gas station data for
-target_zip_codes = {"07302", "07304", "07305", "07306", "07307", "07310"}
+def extract_zip_coords(geojson_data):
+    """Extracts zip code coordinates from GeoJSON data."""
+    zip_coords = {}
+    
+    for feature in geojson_data['features']:
+        zip_code = feature['properties'].get('ZCTA5CE10')
+        coords = feature['geometry']['coordinates']
+        geometry_type = feature['geometry']['type']
+
+        # Check if the coordinates are valid and not empty
+        if not coords:
+            continue
+        
+        # Handle different geometry types
+        if geometry_type == 'Polygon' or geometry_type == 'MultiPolygon':
+            # For Polygon, get the outer boundary; for MultiPolygon, get the first polygon
+            coords = coords[0][0] if geometry_type == 'MultiPolygon' else coords[0]
+        
+        # Ensure that coords is a list of lists (lat, lon pairs)
+        if isinstance(coords[0], list):
+            try:
+                # Calculate the centroid for a list of coordinates
+                centroid_lat = sum([point[1] for point in coords]) / len(coords)
+                centroid_lon = sum([point[0] for point in coords]) / len(coords)
+            except IndexError:
+                continue  # Skip if the structure is invalid
+        else:
+            # Handle single coordinate pair
+            try:
+                centroid_lat, centroid_lon = coords[1], coords[0]
+            except IndexError:
+                continue  # Skip if the structure is invalid
+        
+        if zip_code:
+            zip_coords[zip_code] = (centroid_lat, centroid_lon)
+            
+    return zip_coords
+
+
 
 def filter_geojson(geojson_data, target_zip_codes):
     """Filters GeoJSON data to include only features within target zip codes."""
@@ -127,17 +167,48 @@ def modify_geojson_with_colors(filtered_geojson, zipcode_colors):
         feature['properties']['fillColor'] = zipcode_colors.get(zipcode, [255, 255, 255, 0])
     return filtered_geojson
 
+def find_neighboring_zipcodes(input_zip, zip_coords, max_distance=5):
+    """Finds neighboring zipcodes within a 5 miles from the input zipcode."""
+    input_coords = zip_coords.get(input_zip)
+    if not input_coords:
+        return []
+
+    neighboring_zipcodes = []
+    for zipcode, coords in zip_coords.items():
+        distance = geodesic(input_coords, coords).miles
+        if distance <= max_distance:
+            neighboring_zipcodes.append(zipcode)
+
+    return neighboring_zipcodes
+
 async def main():
     """Main function to run the Streamlit app."""
-    st.title("Gas Station Prices in Jersey City, NJ by Zip Code")
+    st.title("Gas Station Prices by Zip Code")
     
+    # Load and merge GeoJSON data from NJ and PA
+    geojson_data = load_and_merge_geojson(
+        'new-jersey-zip-codes-_1601.geojson',
+        'pennsylvania-zip-codes-_1608.geojson'
+    )
+    zip_coords = extract_zip_coords(geojson_data)
+
+    # User input for the zipcode
+    input_zip = st.text_input("Enter a Zip Code:", "19405")
+    if input_zip not in zip_coords:
+        st.warning("Zip code not found in the dataset.")
+        return
+
+    # Get the center coordinates of the input zip code
+    center_lat, center_lon = zip_coords[input_zip]
+
+    # Calculate neighboring zipcodes within 5 miles
+    target_zip_codes = find_neighboring_zipcodes(input_zip, zip_coords)
+
     all_stations = {}
     cheapest_stations = []
     zipcode_prices = {}
 
-    # Load and filter GeoJSON data based on target zip codes
-    with open('new-jersey-zip-codes-_1601.geojson', 'r') as file:
-        geojson_data = json.load(file)
+    # Filter GeoJSON data based on target zip codes
     filtered_geojson = filter_geojson(geojson_data, target_zip_codes)
 
     # Fetch and display gas station data upon button click
@@ -201,12 +272,14 @@ async def main():
             )
             layers.append(icon_layer)
 
+            # Prepare text data for displaying zip codes on the map
             text_data = [{
-                "position": [zipcode_coords[zipcode][1], zipcode_coords[zipcode][0]],
+                "position": [zip_coords[zipcode][1], zip_coords[zipcode][0]],
                 "text": zipcode,
                 "color": [255, 255, 255, 255],
             } for zipcode in target_zip_codes]
 
+            # Add a TextLayer to display zip codes
             text_layer = pdk.Layer(
                 "TextLayer",
                 data=text_data,
@@ -218,7 +291,14 @@ async def main():
             )
             layers.append(text_layer)
 
-            view_state = pdk.ViewState(latitude=40.7178, longitude=-74.0431, zoom=11, pitch=0)
+            # Set the map's view state to center on the input zip code
+            view_state = pdk.ViewState(
+                latitude=center_lat,
+                longitude=center_lon,
+                zoom=11,
+                pitch=0
+            )
+
             st.pydeck_chart(pdk.Deck(layers=layers, initial_view_state=view_state))
 
     # Display all stations in a table format for each zipcode
